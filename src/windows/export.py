@@ -756,7 +756,10 @@ class Export(QDialog):
         if profile_name:
             for index in range(self.cboSimpleVideoProfile.count()):
                 combo_profile = self.cboSimpleVideoProfile.itemText(index)
-                if combo_profile == profile_name:
+                if (
+                    combo_profile == profile_name
+                    or combo_profile.startswith(f"{profile_name} (")
+                ):
                     return index
             return -1
         if profile_key:
