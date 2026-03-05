@@ -22,4 +22,5 @@
     <projectprofile>HD Square 1080p 30 fps</projectprofile>
     <projectprofile>HD Square 1080p 50 fps</projectprofile>
     <projectprofile>HD Square 1080p 60 fps</projectprofile>
+    <defaultprojectprofile>HD Square 1080p 30 fps</defaultprojectprofile>
 </export-option>

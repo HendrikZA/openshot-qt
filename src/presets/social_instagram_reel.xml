@@ -24,4 +24,5 @@
     <projectprofile>FHD Vertical 1080p 50 fps</projectprofile>
     <projectprofile>FHD Vertical 1080p 59.94 fps</projectprofile>
     <projectprofile>FHD Vertical 1080p 60 fps</projectprofile>
+    <defaultprojectprofile>FHD Vertical 1080p 30 fps</defaultprojectprofile>
 </export-option>

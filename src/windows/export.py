@@ -589,6 +589,7 @@ class Export(QDialog):
         if selected_target:
             profiles_list = []
             v_l = v_m = v_h = a_l = a_m = a_h = None
+            forced_profile = None
 
             # Clear the following options (and remember current settings)
             previous_quality = self.cboSimpleQuality.currentIndex()
@@ -641,6 +642,12 @@ class Export(QDialog):
                                 export_to = _(xmldoc.getElementsByTagName("export-to")[0].childNodes[0].data)
                             if export_to in export_to_options:
                                 self.cboExportTo.setCurrentIndex(export_to_options.index(export_to))
+
+                            # Optional default profile override for this preset
+                            if xmldoc.getElementsByTagName("defaultprojectprofile"):
+                                default_profile_node = xmldoc.getElementsByTagName("defaultprojectprofile")[0]
+                                if default_profile_node.childNodes:
+                                    forced_profile = _(default_profile_node.childNodes[0].data)
 
                             # get the video bit rate(s)
                             videobitrate = xmldoc.getElementsByTagName("videobitrate")
@@ -711,14 +718,19 @@ class Export(QDialog):
                 self.cboSimpleVideoProfile.addItem(
                     self.getProfileName(self.getProfilePath(item)), self.getProfilePath(item))
 
-            # select the project's current profile
-            profile_index = self.getVideoProfileIndex(self.selected_profile)
+            # Select profile with this priority:
+            # 1) preset default override, 2) project's current profile, 3) first profile.
+            if forced_profile:
+                profile_index = self.getVideoProfileIndex(forced_profile)
+            else:
+                profile_index = -1
             if profile_index != -1:
-                # Re-select project profile (if found in list)
                 self.cboSimpleVideoProfile.setCurrentIndex(profile_index)
             else:
-                # Previous profile not in list, so
-                # default to first profile in list
+                profile_index = self.getVideoProfileIndex(self.selected_profile)
+            if profile_index != -1:
+                self.cboSimpleVideoProfile.setCurrentIndex(profile_index)
+            else:
                 self.cboSimpleVideoProfile.setCurrentIndex(0)
 
             # set the quality combo
