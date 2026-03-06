@@ -1098,6 +1098,37 @@ class TimelineView(updates.UpdateInterface, ViewClass):
         """Show the Properties dock (triggered by double-click on a clip/transition)."""
         self.window.actionProperties.trigger()
 
+    def _flatten_keyframes_in_object(self, data):
+        """Reduce each keyframe list (Points) to a single keyframe value."""
+        changed = False
+
+        def point_x(point):
+            try:
+                return float(point.get("co", {}).get("X", 1.0))
+            except Exception:
+                return 1.0
+
+        if isinstance(data, dict):
+            points = data.get("Points")
+            if isinstance(points, list) and len(points) > 1:
+                sorted_points = sorted(points, key=point_x)
+                first = deepcopy(sorted_points[0])
+                if isinstance(first, dict) and isinstance(first.get("co"), dict):
+                    first["co"]["X"] = 1.0
+                data["Points"] = [first]
+                changed = True
+
+            for value in data.values():
+                if self._flatten_keyframes_in_object(value):
+                    changed = True
+
+        elif isinstance(data, list):
+            for item in data:
+                if self._flatten_keyframes_in_object(item):
+                    changed = True
+
+        return changed
+
     @pyqtSlot(str)
     def ShowClipMenu(self, clip_id=None):
         log.debug('ShowClipMenu: %s' % clip_id)
@@ -1349,6 +1380,9 @@ class TimelineView(updates.UpdateInterface, ViewClass):
         # Add Each position menu
         menu.addMenu(Animate_Menu)
 
+        Reset_Keyframes = menu.addAction(_("Reset Keyframes (Make Constant)"))
+        Reset_Keyframes.triggered.connect(partial(self.ResetClipKeyframes_Triggered, clip_ids))
+
         # Rotate Menu
         Rotation_Menu = StyledContextMenu(title=_("Rotate"), parent=self)
         Rotation_None = Rotation_Menu.addAction(_("No Rotation"))
@@ -1591,6 +1625,21 @@ class TimelineView(updates.UpdateInterface, ViewClass):
         # Properties
         menu.addAction(self.window.actionProperties)
 
+        editable_title_clip_ids = []
+        for selected_clip_id in clip_ids:
+            selected_clip = Clip.get(id=selected_clip_id)
+            if not selected_clip:
+                continue
+            file_id = selected_clip.data.get("file_id")
+            file_obj = File.get(id=file_id) if file_id else None
+            file_path = file_obj.data.get("path") if file_obj else ""
+            if file_path and file_path.lower().endswith(".svg"):
+                editable_title_clip_ids.append(selected_clip_id)
+
+        if editable_title_clip_ids:
+            Edit_Text_Action = menu.addAction(_("Edit Text..."))
+            Edit_Text_Action.triggered.connect(partial(self.EditClipText_Triggered, editable_title_clip_ids))
+
         # Remove Clip Menu
         menu.addSeparator()
         menu.addAction(self.window.actionRemoveClip)
@@ -1608,6 +1657,64 @@ class TimelineView(updates.UpdateInterface, ViewClass):
         else:
             # Clear transform
             self.window.TransformSignal.emit([])
+
+    def EditClipText_Triggered(self, clip_ids):
+        """Open Title Editor for SVG-backed title clips."""
+        target_file_id = None
+        target_file_path = None
+
+        for selected_clip_id in clip_ids:
+            selected_clip = Clip.get(id=selected_clip_id)
+            if not selected_clip:
+                continue
+            file_id = selected_clip.data.get("file_id")
+            file_obj = File.get(id=file_id) if file_id else None
+            file_path = file_obj.data.get("path") if file_obj else ""
+            if file_path and file_path.lower().endswith(".svg"):
+                target_file_id = file_id
+                target_file_path = file_path
+                break
+
+        if not target_file_id or not target_file_path:
+            return
+
+        from windows.title_editor import TitleEditor
+        win = TitleEditor(edit_file_path=target_file_path)
+        win.exec_()
+
+        # Refresh file and clip thumbnails after title edits.
+        self.window.FileUpdated.emit(target_file_id)
+        for c in Clip.filter(file_id=target_file_id):
+            c.data["reader"]["path"] = target_file_path
+            c.save()
+            self.ThumbnailUpdated.emit(c.id, 1)
+
+        self.window.refreshFrameSignal.emit()
+
+    def ResetClipKeyframes_Triggered(self, clip_ids):
+        """Reset keyframes on selected clips by flattening animated points."""
+        if not clip_ids:
+            return
+
+        changed_clips = 0
+        tid = self.get_uuid()
+        get_app().updates.transaction_id = tid
+
+        for clip_id in clip_ids:
+            clip = Clip.get(id=clip_id)
+            if not clip:
+                continue
+
+            clip_data = clip.data
+            if self._flatten_keyframes_in_object(clip_data):
+                clip.save()
+                changed_clips += 1
+
+        get_app().updates.transaction_id = None
+
+        if changed_clips:
+            self.window.refreshFrameSignal.emit()
+            log.info("Reset keyframes for %s clip(s)", changed_clips)
 
     def Show_Waveform_Triggered(self, clip_ids, transaction_id=None):
         """Show a waveform for all selected clips"""
