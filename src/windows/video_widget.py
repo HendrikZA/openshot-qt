@@ -51,6 +51,102 @@ from classes.query import Clip, Effect
 class VideoWidget(QWidget, updates.UpdateInterface):
     """ A QWidget used on the video display widget """
 
+    def _is_over_overlay_button(self, point):
+        """Return True if the pointer is over a preview overlay control button."""
+        buttons = [getattr(self, "resize_button", None), getattr(self, "guide_button", None)]
+        for button in buttons:
+            if button and button.isVisible() and button.rect().contains(point):
+                return True
+        return False
+
+    def _current_guide_mode(self):
+        return self.safe_guide_modes[self.safe_guide_index]
+
+    def _update_guide_button_text(self):
+        _, label, _, _ = self._current_guide_mode()
+        self.guide_button.setText(label)
+        self.guide_button.adjustSize()
+        self._position_overlay_buttons()
+
+    def _position_overlay_buttons(self):
+        """Position guide/zoom buttons in the top-right corner of the preview."""
+        margin = 10
+        spacing = 6
+        guide_button = getattr(self, "guide_button", None)
+        resize_button = getattr(self, "resize_button", None)
+        if guide_button:
+            guide_button.adjustSize()
+            gx = max(0, self.width() - guide_button.width() - margin)
+            gy = margin
+            guide_button.move(gx, gy)
+
+            if resize_button:
+                resize_button.adjustSize()
+                rx = max(0, self.width() - resize_button.width() - margin)
+                ry = gy + guide_button.height() + spacing
+                resize_button.move(rx, ry)
+
+    def _draw_safe_guides(self, painter, viewport):
+        """Draw social-format guide overlays (crop window + safe zone)."""
+        mode_id, _, ratio_pair, safe_margins = self._current_guide_mode()
+        if mode_id == "off" or not ratio_pair:
+            return
+
+        vw = float(viewport.width())
+        vh = float(viewport.height())
+        if vw <= 1.0 or vh <= 1.0:
+            return
+
+        ratio = ratio_pair[0] / ratio_pair[1]
+        view_ratio = vw / vh
+        if view_ratio > ratio:
+            target_h = vh
+            target_w = target_h * ratio
+        else:
+            target_w = vw
+            target_h = target_w / ratio
+
+        target_x = viewport.x() + (vw - target_w) / 2.0
+        target_y = viewport.y() + (vh - target_h) / 2.0
+        target_rect = QRectF(target_x, target_y, target_w, target_h)
+
+        # Dim the area outside the target crop.
+        dim = QColor(0, 0, 0, 95)
+        painter.fillRect(QRectF(viewport.x(), viewport.y(), viewport.width(), target_rect.top() - viewport.y()), dim)
+        painter.fillRect(
+            QRectF(viewport.x(), target_rect.bottom(), viewport.width(), viewport.bottom() - target_rect.bottom() + 1.0),
+            dim
+        )
+        painter.fillRect(
+            QRectF(viewport.x(), target_rect.top(), target_rect.left() - viewport.x(), target_rect.height()),
+            dim
+        )
+        painter.fillRect(
+            QRectF(target_rect.right(), target_rect.top(), viewport.right() - target_rect.right() + 1.0, target_rect.height()),
+            dim
+        )
+
+        # Target crop boundary.
+        target_pen = QPen(QColor("#53a0ed"), 1.5)
+        target_pen.setCosmetic(True)
+        painter.setPen(target_pen)
+        painter.drawRect(target_rect)
+
+        # Inner safe zone.
+        margin_x = target_rect.width() * safe_margins[0]
+        margin_y = target_rect.height() * safe_margins[1]
+        safe_rect = target_rect.adjusted(margin_x, margin_y, -margin_x, -margin_y)
+        safe_pen = QPen(QColor("#ffd45c"), 1.0, Qt.DashLine)
+        safe_pen.setCosmetic(True)
+        painter.setPen(safe_pen)
+        painter.drawRect(safe_rect)
+
+    def guide_button_clicked(self):
+        """Cycle social safe-guide overlays."""
+        self.safe_guide_index = (self.safe_guide_index + 1) % len(self.safe_guide_modes)
+        self._update_guide_button_text()
+        self.update()
+
     def _snap_angle(self, angle_degrees, step_degrees=15.0):
         """Snap an angle to the nearest increment (degrees)."""
         step = float(step_degrees) if step_degrees else 0.0
@@ -462,6 +558,9 @@ class VideoWidget(QWidget, updates.UpdateInterface):
                     Qt.SmoothTransformation
                 )
                 painter.drawImage(viewport, scaled_img)
+
+            # Social-format safe guides
+            self._draw_safe_guides(painter, viewport)
 
             # Prep for transform UI
             fps = get_app().project.get("fps")
@@ -899,10 +998,7 @@ class VideoWidget(QWidget, updates.UpdateInterface):
         handle_uis = [h for h in handle_uis if h["handle"]]
 
         # Mouse over resize button (and not currently dragging)
-        if (not self.mouse_dragging
-            and self.resize_button.isVisible()
-            and self.resize_button.rect().contains(event.pos())
-        ):
+        if not self.mouse_dragging and self._is_over_overlay_button(event.pos()):
             self.hover_cursor = Qt.ArrowCursor
             self.hover_transform_mode = None
             self.setCursor(self.hover_cursor)
@@ -1194,10 +1290,7 @@ class VideoWidget(QWidget, updates.UpdateInterface):
             cs = self.cs
 
             # Adjust existing region coordinates (if any)
-            if (not self.mouse_dragging
-                and self.resize_button.isVisible()
-                and self.resize_button.rect().contains(event.pos())
-            ):
+            if not self.mouse_dragging and self._is_over_overlay_button(event.pos()):
                 # Mouse over resize button (and not currently dragging)
                 self.setCursor(Qt.ArrowCursor)
             elif (
@@ -1925,6 +2018,7 @@ class VideoWidget(QWidget, updates.UpdateInterface):
     def resizeEvent(self, event):
         """Widget resize event"""
         event.accept()
+        self._position_overlay_buttons()
         self.delayed_size = self.size()
         self.delayed_resize_timer.start()
 
@@ -1967,6 +2061,7 @@ class VideoWidget(QWidget, updates.UpdateInterface):
             self.resize_button.show()
         else:
             self.resize_button.hide()
+        self._position_overlay_buttons()
 
         # Request repaint asynchronously to avoid recursive paint calls.
         self.update()
@@ -1975,6 +2070,7 @@ class VideoWidget(QWidget, updates.UpdateInterface):
         """Resize zoom button clicked"""
         self.zoom = 1.0
         self.resize_button.hide()
+        self._position_overlay_buttons()
 
         # Request repaint asynchronously to avoid recursive paint calls.
         self.update()
@@ -2036,11 +2132,24 @@ class VideoWidget(QWidget, updates.UpdateInterface):
         self.curr_frame_size = None # Frame size
         self.zoom = 1.0  # Zoom of widget (does not affect video, only workspace)
         self.cs = 14.0  # Corner size of Transform Handler rectangles
+        self.safe_guide_modes = [
+            ("off", _("Guides: Off"), None, None),
+            ("social_9_16", _("Guides: 9:16"), (9.0, 16.0), (0.08, 0.18)),
+            ("social_4_5", _("Guides: 4:5"), (4.0, 5.0), (0.08, 0.10)),
+            ("social_1_1", _("Guides: 1:1"), (1.0, 1.0), (0.08, 0.08)),
+        ]
+        self.safe_guide_index = 0
         self.resize_button = QPushButton(_('Reset Zoom'), self)
         self.resize_button.hide()
         self.resize_button.setStyleSheet('QPushButton { margin: 10px; padding: 2px; }')
         self.resize_button.clicked.connect(self.resize_button_clicked)
         self.resize_button.setMouseTracking(True)
+        self.guide_button = QPushButton(self)
+        self.guide_button.setStyleSheet('QPushButton { margin: 10px; padding: 2px; }')
+        self.guide_button.setToolTip(_("Toggle social media safe guides"))
+        self.guide_button.clicked.connect(self.guide_button_clicked)
+        self.guide_button.setMouseTracking(True)
+        self._update_guide_button_text()
 
         # FPS calculations
         self.paint_fps = 0.0
