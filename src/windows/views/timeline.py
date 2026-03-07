@@ -1440,6 +1440,16 @@ class TimelineView(updates.UpdateInterface, ViewClass):
             self.Layout_Triggered, MenuLayout.ALL_WITHOUT_ASPECT, clip_ids))
         menu.addMenu(Layout_Menu)
 
+        # Auto Fit Menu
+        Auto_Fit_Menu = StyledContextMenu(title=_("Auto Fit"), parent=self)
+        Auto_Fit = Auto_Fit_Menu.addAction(_("Fit to Frame"))
+        Auto_Fit.triggered.connect(partial(self.AutoFit_Triggered, "fit", clip_ids))
+        Auto_Fill = Auto_Fit_Menu.addAction(_("Fill Frame (Crop)"))
+        Auto_Fill.triggered.connect(partial(self.AutoFit_Triggered, "fill", clip_ids))
+        Auto_Center = Auto_Fit_Menu.addAction(_("Center in Frame"))
+        Auto_Center.triggered.connect(partial(self.AutoFit_Triggered, "center", clip_ids))
+        menu.addMenu(Auto_Fit_Menu)
+
         # Time Menu
         Time_Menu = StyledContextMenu(title=_("Time"), parent=self)
         Time_None = Time_Menu.addAction(_("Reset Time"))
@@ -2132,6 +2142,42 @@ class TimelineView(updates.UpdateInterface, ViewClass):
             else:
                 # Save changes
                 self.update_clip_data(clip.data, only_basic_props=False, ignore_reader=True)
+
+    def AutoFit_Triggered(self, mode, clip_ids):
+        """Quick clip fitting helpers for social workflows."""
+        log.debug("AutoFit_Triggered: %s", mode)
+
+        # Group updates in one undo action.
+        tid = self.get_uuid()
+        get_app().updates.transaction_id = tid
+        try:
+            for clip_id in clip_ids:
+                clip = Clip.get(id=clip_id)
+                if not clip:
+                    continue
+
+                if mode == "fit":
+                    clip.data["scale"] = openshot.SCALE_FIT
+                    clip.data["gravity"] = openshot.GRAVITY_CENTER
+                elif mode == "fill":
+                    clip.data["scale"] = openshot.SCALE_CROP
+                    clip.data["gravity"] = openshot.GRAVITY_CENTER
+                elif mode == "center":
+                    clip.data["gravity"] = openshot.GRAVITY_CENTER
+
+                # Keep transforms constant over the whole clip (no accidental animation).
+                if mode in ["fit", "fill"]:
+                    scale_point = json.loads(openshot.Point(1, 1.0, openshot.BEZIER).Json())
+                    clip.data["scale_x"] = {"Points": [deepcopy(scale_point)]}
+                    clip.data["scale_y"] = {"Points": [deepcopy(scale_point)]}
+
+                location_point = json.loads(openshot.Point(1, 0.0, openshot.BEZIER).Json())
+                clip.data["location_x"] = {"Points": [deepcopy(location_point)]}
+                clip.data["location_y"] = {"Points": [deepcopy(location_point)]}
+
+                self.update_clip_data(clip.data, only_basic_props=False, ignore_reader=True, transaction_id=tid)
+        finally:
+            get_app().updates.transaction_id = None
 
     def Animate_Triggered(self, action, clip_ids, position="Entire Clip", transaction_id=None):
         """Callback for the animate context menus"""
