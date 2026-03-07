@@ -51,6 +51,7 @@ from PyQt5.QtWidgets import (
     QAction, QActionGroup, QSizePolicy,
     QStatusBar, QToolBar, QToolButton,
     QLineEdit, QComboBox, QTextEdit, QShortcut, QTabBar, QAbstractButton,
+    QLabel, QSlider,
     QPlainTextEdit, QSpinBox, QDoubleSpinBox
 )
 
@@ -2367,6 +2368,7 @@ class MainWindow(updates.UpdateWatcher, QMainWindow):
             self.filesView = self.filesTreeView
             self.filesView.show()
             self.filesTreeView.refresh_view()
+            self._set_files_zoom_enabled(False)
 
         # Transitions
         elif app.context_menu_object == "transitions":
@@ -2397,6 +2399,7 @@ class MainWindow(updates.UpdateWatcher, QMainWindow):
             self.filesTreeView.hide()
             self.filesView = self.filesListView
             self.filesView.show()
+            self._set_files_zoom_enabled(True)
 
         # Transitions
         elif app.context_menu_object == "transitions":
@@ -3082,6 +3085,7 @@ class MainWindow(updates.UpdateWatcher, QMainWindow):
 
     def setup_toolbars(self):
         _ = get_app()._tr  # Get translation function
+        s = get_app().get_settings()
 
         # Start undo and redo actions disabled
         self.actionUndo.setEnabled(False)
@@ -3106,6 +3110,23 @@ class MainWindow(updates.UpdateWatcher, QMainWindow):
         self.filesFilter.setPlaceholderText(_("Filter"))
         self.filesFilter.setClearButtonEnabled(True)
         self.filesToolbar.addWidget(self.filesFilter)
+
+        self.filesZoomLabel = QLabel(_("Zoom"))
+        self.filesZoomLabel.setObjectName("filesZoomLabel")
+        self.filesToolbar.addWidget(self.filesZoomLabel)
+
+        self.filesZoomSlider = QSlider(Qt.Horizontal)
+        self.filesZoomSlider.setObjectName("filesZoomSlider")
+        self.filesZoomSlider.setRange(70, 220)
+        self.filesZoomSlider.setSingleStep(10)
+        self.filesZoomSlider.setPageStep(20)
+        self.filesZoomSlider.setFixedWidth(120)
+        self.filesZoomSlider.setToolTip(_("Project file thumbnail size"))
+        self.filesZoomSlider.valueChanged.connect(self.on_files_zoom_changed)
+        self.filesToolbar.addWidget(self.filesZoomSlider)
+
+        saved_zoom = int(s.get("files_thumbnail_zoom") or 100)
+        self.filesZoomSlider.setValue(max(70, min(220, saved_zoom)))
         self.tabFiles.layout().insertWidget(0, self.filesToolbar)
 
         # Add transitions toolbar
@@ -3411,6 +3432,8 @@ class MainWindow(updates.UpdateWatcher, QMainWindow):
         else:
             self.filesView = self.filesListView
             self.filesTreeView.hide()
+        self.apply_files_thumbnail_zoom()
+        self._set_files_zoom_enabled(self.filesView == self.filesListView)
         # Show our currently-enabled project files view
         self.filesView.show()
         self.filesView.setFocus()
@@ -3460,6 +3483,26 @@ class MainWindow(updates.UpdateWatcher, QMainWindow):
         self.emojis_model.update_model()
         self.emojiListView = EmojisListView(self.emojis_model)
         self.tabEmojis.layout().addWidget(self.emojiListView)
+
+    def _set_files_zoom_enabled(self, enabled):
+        """Enable thumbnail zoom controls when Project Files is in thumbnail mode."""
+        if hasattr(self, "filesZoomLabel"):
+            self.filesZoomLabel.setEnabled(bool(enabled))
+        if hasattr(self, "filesZoomSlider"):
+            self.filesZoomSlider.setEnabled(bool(enabled))
+
+    def on_files_zoom_changed(self, value):
+        """Persist and apply project files thumbnail zoom changes."""
+        s = get_app().get_settings()
+        s.set("files_thumbnail_zoom", int(value))
+        self.apply_files_thumbnail_zoom()
+
+    def apply_files_thumbnail_zoom(self):
+        """Apply saved thumbnail zoom to project files list view."""
+        if not hasattr(self, "filesListView") or not hasattr(self, "filesZoomSlider"):
+            return
+        zoom_value = int(self.filesZoomSlider.value())
+        self.filesListView.set_thumbnail_zoom(zoom_value)
 
     def actionInsertKeyframe(self):
         log.debug("actionInsertKeyframe")

@@ -30,7 +30,7 @@ import uuid
 
 from PyQt5.QtCore import QSize, Qt, QPoint, QRegExp, QItemSelectionModel
 from PyQt5.QtGui import QDrag, QCursor, QPixmap, QPainter, QIcon
-from PyQt5.QtWidgets import QListView, QAbstractItemView
+from PyQt5.QtWidgets import QListView, QAbstractItemView, QStyledItemDelegate, QStyleOptionViewItem
 
 from classes import info
 from classes.app import get_app
@@ -39,10 +39,31 @@ from classes.query import File
 from .menu import StyledContextMenu
 
 
+class _ScaledIconDelegate(QStyledItemDelegate):
+    """Force icon thumbnails to scale to the active list view icon size."""
+
+    def paint(self, painter, option, index):
+        icon = index.data(Qt.DecorationRole)
+        if isinstance(icon, QIcon):
+            opt = QStyleOptionViewItem(option)
+            view = self.parent()
+            target_size = view.iconSize() if view else option.decorationSize
+            source = icon.pixmap(max(1, icon.actualSize(target_size).width()), max(1, icon.actualSize(target_size).height()))
+            if not source.isNull():
+                scaled = source.scaled(target_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                opt.icon = QIcon(scaled)
+                opt.decorationSize = target_size
+                super().paint(painter, opt, index)
+                return
+        super().paint(painter, option, index)
+
+
 class FilesListView(QListView):
     """ A ListView QWidget used on the main window """
     drag_item_size = QSize(48, 48)
     drag_item_center = QPoint(24, 24)
+    min_zoom_percent = 70
+    max_zoom_percent = 220
 
     def contextMenuEvent(self, event):
         event.accept()
@@ -249,6 +270,22 @@ class FilesListView(QListView):
     def resize_contents(self):
         pass
 
+    def set_thumbnail_zoom(self, zoom_percent):
+        """Adjust icon/grid size for thumbnail mode zoom."""
+        zoom_percent = max(self.min_zoom_percent, min(self.max_zoom_percent, int(zoom_percent)))
+        scale = zoom_percent / 100.0
+
+        icon_width = max(32, int(round(info.LIST_ICON_SIZE.width() * scale)))
+        icon_height = max(24, int(round(info.LIST_ICON_SIZE.height() * scale)))
+        icon_size = QSize(icon_width, icon_height)
+
+        pad_width = max(5, int(round(5 * scale)))
+        pad_height = max(22, int(round(25 * scale)))
+        grid_size = QSize(icon_size.width() + pad_width, icon_size.height() + pad_height)
+
+        self.setIconSize(icon_size)
+        self.setGridSize(grid_size)
+
     def __init__(self, model, *args):
         # Invoke parent init
         super().__init__(*args)
@@ -274,8 +311,8 @@ class FilesListView(QListView):
 
         # Setup header columns and layout
         self.setModelColumn(0)  # Only display first column in icon mode
-        self.setIconSize(info.LIST_ICON_SIZE)
-        self.setGridSize(info.LIST_GRID_SIZE)
+        self.setItemDelegate(_ScaledIconDelegate(self))
+        self.set_thumbnail_zoom(100)
         self.setViewMode(QListView.IconMode)
         self.setResizeMode(QListView.Adjust)
 

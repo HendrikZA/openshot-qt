@@ -127,6 +127,13 @@
     "setting": "file_view"
   },
   {
+    "value": 100,
+    "title": "",
+    "type": "hidden",
+    "category": "UI",
+    "setting": "files_thumbnail_zoom"
+  },
+  {
     "value": "thumbnail",
     "title": "",
     "type": "hidden",

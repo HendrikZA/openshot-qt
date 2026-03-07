@@ -56,6 +56,7 @@ from classes.app import get_app
 from classes.metrics import track_metric_screen
 from windows.color_picker import ColorPicker, draw_checkerboard
 from classes.style_tools import style_to_dict, dict_to_style, set_if_existing
+from classes.query import File
 from windows.views.titles_listview import TitlesListView
 
 
@@ -569,6 +570,50 @@ class TitleEditor(QDialog):
         except IOError as inst:
             log.error("Error writing SVG title: {}".format(inst))
 
+    def _generate_title_display_name(self, max_words=6, max_chars=48):
+        """Build a friendly file display name from title text content."""
+        text_chunks = []
+
+        # Prefer editable text spans from the title template.
+        for node in getattr(self, "tspan_nodes", []) or []:
+            if node.childNodes:
+                text = node.childNodes[0].data
+                text = re.sub(r"\s+", " ", (text or "")).strip()
+                if text:
+                    text_chunks.append(text)
+
+        # Fallback: parse text nodes if spans are unavailable.
+        if not text_chunks:
+            for node in getattr(self, "text_nodes", []) or []:
+                if node.childNodes:
+                    text = node.childNodes[0].data
+                    text = re.sub(r"\s+", " ", (text or "")).strip()
+                    if text:
+                        text_chunks.append(text)
+
+        if not text_chunks:
+            return ""
+
+        joined = " - ".join(text_chunks)
+        words = joined.split()
+        short_name = " ".join(words[:max_words]).strip()
+        if len(short_name) > max_chars:
+            short_name = short_name[:max_chars].rstrip()
+        return short_name
+
+    def _apply_title_display_name(self, file_path):
+        """Update project file display name for a title SVG."""
+        title_file = File.get(path=file_path)
+        if not title_file:
+            return
+
+        display_name = self._generate_title_display_name()
+        if not display_name:
+            return
+
+        title_file.data["name"] = display_name
+        title_file.save()
+
     def save_and_reload(self):
         """Something changed, so update temp SVG and redisplay"""
         if not self.is_thread_busy:
@@ -815,6 +860,7 @@ class TitleEditor(QDialog):
 
             # Overwrite title svg file
             self.writeToFile(self.xmldoc)
+            self._apply_title_display_name(self.filename)
 
         else:
             # Create new title (with unique name)
@@ -841,6 +887,7 @@ class TitleEditor(QDialog):
 
                 # Add file to project
                 app.window.files_model.add_files(self.filename, prevent_image_seq=True, prevent_recent_folder=True)
+                self._apply_title_display_name(self.filename)
 
         # Close window
         super().accept()
