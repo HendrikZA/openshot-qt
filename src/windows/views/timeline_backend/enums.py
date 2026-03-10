@@ -93,6 +93,7 @@ class MenuVolume(Enum):
     FADE_IN_OUT_FAST = auto()
     FADE_IN_OUT_SLOW = auto()
     LEVEL = auto()
+    MUTE = auto()
 
 
 class MenuTransform(Enum):

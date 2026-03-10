@@ -1521,8 +1521,20 @@ class TimelineView(updates.UpdateInterface, ViewClass):
         # Add menu to parent
         menu.addMenu(Time_Menu)
 
+        # Speed shortcuts
+        Speed_Menu = StyledContextMenu(title=_("Speed"), parent=self)
+        for speed_label in ['2X', '4X', '8X', '16X']:
+            Speed_Up_Action = Speed_Menu.addAction(_("Speed Up ({speed})").format(speed=speed_label))
+            Speed_Up_Action.triggered.connect(
+                partial(self.Time_Triggered, MenuTime.FORWARD, clip_ids, speed_label)
+            )
+        menu.addMenu(Speed_Menu)
+
         # Volume Menu
         Volume_Menu = StyledContextMenu(title=_("Volume"), parent=self)
+        Remove_Audio = Volume_Menu.addAction(_("Remove Audio"))
+        Remove_Audio.triggered.connect(partial(self.Volume_Triggered, MenuVolume.MUTE, clip_ids))
+        Volume_Menu.addSeparator()
         Volume_None = Volume_Menu.addAction(_("Reset Volume"))
         Volume_None.triggered.connect(partial(self.Volume_Triggered, MenuVolume.NONE, clip_ids))
         Volume_Menu.addSeparator()
@@ -3073,6 +3085,13 @@ class TimelineView(updates.UpdateInterface, ViewClass):
                     p = openshot.Point(1, 1.0, openshot.BEZIER)
                     p_object = json.loads(p.Json())
                     clip.data['volume'] = {"Points": [p_object]}
+
+                if action == MenuVolume.MUTE:
+                    start = openshot.Point(start_of_clip, 0.0, openshot.BEZIER)
+                    start_object = json.loads(start.Json())
+                    end = openshot.Point(end_of_clip, 0.0, openshot.BEZIER)
+                    end_object = json.loads(end.Json())
+                    clip.data['volume'] = {"Points": [start_object, end_object]}
 
                 if action in [
                     MenuVolume.FADE_IN_FAST,
